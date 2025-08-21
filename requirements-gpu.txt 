@@ -1,0 +1,15 @@
+# .dockerignore
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+*.so
+
+# project-specific
+conditioning/
+samples/
+out/
+*.wav
+*.mp3

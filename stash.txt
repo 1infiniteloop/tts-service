@@ -1,0 +1,95 @@
+python xtts_clone.py --ref samples/output.wav --text "Hello world" --out out.wav --lang en
+
+•	--ref → path to your voice reference audio (your 49-min recording).
+
+set -a; source .env; set +a // load .env vars into 
+
+
+	•	For maximum consistency: temperature=0.0, top_p=0.0 (greedy).
+	•	For slight expressiveness but stable: temperature=0.1–0.2, top_p=0.7–0.9.
+	•	Keep using your cached conditioning (gpt_cond_latent + speaker_embedding) so the voice stays the same; only the delivery changes.
+
+
+
+----------------------------------------------------
+1. The Core Players
+	•	Coqui TTS Synthesizer
+This is the object that takes your text + voice embedding and actually generates audio. Think of it like the “brain” of TTS.
+	•	Speaker Embedding (conditioning.pt)
+This is a vector representation of your 49-minute voice sample. It’s like a “voice DNA” file — a fingerprint that tells the model how to sound.
+Once computed, it can be reused forever, which is why caching it is so powerful.
+	•	speak.py
+This script loads both the model and the cached embedding, then feeds them text → audio.
+
+
+
+
+-------------------------------------------------------
+
+
+Perfect question 👍 this is exactly the repeatability we want.
+
+Right now your flow is basically two scripts:
+	1.	Prep a reference voice (once per speaker)
+	•	Run prep_ref.py (the script we wrote earlier).
+	•	Example:
+
+
+python prep_ref.py --ref /absolute/path/to/voice2.wav --out conditioning/voice2.pt
+
+
+
+	•	That gives you a cached file with both gpt_cond_latent and speaker_embedding for that speaker.
+
+	2.	Synthesize speech with that cached voice
+	•	Run speak.py and pass in the .pt you just created:
+
+
+
+python speak.py --text "This is the second voice speaking." \
+                --speaker conditioning/voice2.pt \
+                --out out/voice2_test.wav
+
+
+
+----------------------------------------------------------------------------
+
+docker build --no-cache -t tts-service .
+
+docker build --no-cache --progress=plain -t tts-service . | tee build.log
+
+
+docker run --rm -it -p 8000:8000 tts-service
+
+1. Run an interactive shell inside the container
+docker run -it --rm tts-service bash
+
+2. Explore with VSCode’s Docker extension
+	•	Install the Docker extension in VSCode (by Microsoft).
+	•	It gives you a Docker tab where you can expand: Images → Containers → Filesystem.
+	•	You can directly open files inside containers and even attach a terminal.
+
+
+3. Use docker exec on a running container
+
+If your container is already running:
+docker exec -it <container_id_or_name> bash
+
+Find the container ID with:
+docker ps
+
+4. Export image to inspect like a project
+If you want the entire image as a folder tree on disk:
+docker create --name temp tts-service
+docker export temp | tar -xvf - -C ./docker-rootfs
+docker rm temp
+
+
+
+------------------------------------------------------------
+
+curl -X POST "http://localhost:8000/speak" \
+  -F voice=@conditioning/conditioning.pt \
+  -F text="Hello from the Dockerized XTTS API." \
+  -F lang=en -F temp=0.1 -F top_p=0.0 \
+  --output out/hello.wav

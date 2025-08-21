@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+env/
+ENV/
+
+# Environment & secrets
+.env
+*.env
+
+# Local outputs
+conditioning/
+samples/
+out/
+
+# Cache / logs
+*.log
+*.tmp
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
