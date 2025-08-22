@@ -207,6 +207,11 @@ def metrics():
         return JSONResponse(status_code=404, content={"error": "no run yet"})
     return LAST_METRICS
 
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
 if __name__ == "__main__":
     # dev: uvicorn server:app --host 127.0.0.1 --port 5055 --reload
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
