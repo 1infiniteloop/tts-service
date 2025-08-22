@@ -3,7 +3,6 @@ __pycache__/
 .venv/
 .env
 *.env
-conditioning/
 samples/
 out/
 .DS_Store

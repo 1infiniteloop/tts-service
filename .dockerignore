@@ -14,7 +14,6 @@ ENV/
 *.env
 
 # Local outputs
-conditioning/
 samples/
 out/
 
