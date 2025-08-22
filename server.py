@@ -1,6 +1,5 @@
-# server.py — XTTS FastAPI server
-# Features: in-memory speaker cache, auto-split (≤240 chars), CPU thread tuning, per-run /metrics
-import io, os, re, json, hashlib, tempfile, textwrap, time
+# server.py — XTTS FastAPI server (clean in-memory synth)
+import io, os, re, json, hashlib, textwrap, time
 import numpy as np
 import soundfile as sf
 import torch
@@ -8,6 +7,10 @@ from fastapi import FastAPI, UploadFile, Form, Response
 from fastapi.responses import JSONResponse, FileResponse
 from TTS.api import TTS
 import uvicorn
+
+# Accept Coqui TOS if not set (you should still review CPML/commercial terms)
+os.environ.setdefault("COQUI_TOS_ACCEPT", "1")
+os.environ.setdefault("COQUI_TOS_AGREED", "1")
 
 # ---------- CPU thread tuning ----------
 def apply_thread_tuning() -> int:
@@ -25,9 +28,10 @@ ACTIVE_THREADS = apply_thread_tuning()
 MODEL = os.getenv("MODEL", "tts_models/multilingual/multi-dataset/xtts_v2")
 LANG_DEFAULT = os.getenv("LANG", "en")
 MAX_CHARS = 240  # safe cap to avoid XTTS truncation warnings
+SR = 24000
 
 app = FastAPI()
-tts = TTS(model_name=MODEL, gpu=False)
+tts = TTS(model_name=MODEL, gpu=False)  # set gpu=True if you later move to a CUDA box
 
 # ---------- speaker cache (in-memory) ----------
 VOICE_CACHE: dict[str, str] = {}  # sha1(bytes) -> speaker_name
@@ -41,7 +45,6 @@ def get_or_register_speaker(voice_bytes: bytes) -> str:
         gpt, spk = data["gpt"], data["spk"]
     except Exception as e:
         raise ValueError("invalid voice .pt (missing gpt/spk)") from e
-
     sm = tts.synthesizer.tts_model.speaker_manager
     name = f"spk_{h[:8]}"
     sm.speakers[name] = {"gpt_cond_latent": gpt, "speaker_embedding": spk}
@@ -70,6 +73,10 @@ def split_for_xtts(s: str, limit: int = MAX_CHARS) -> list[str]:
 LAST_METRICS = None  # filled after each /speak-batch
 
 # ---------- routes ----------
+@app.get("/")
+def root():
+    return {"ok": True, "endpoints": ["/health", "/speak", "/speak-batch", "/metrics", "/download/last"]}
+
 @app.get("/health")
 def health():
     return {
@@ -89,26 +96,34 @@ async def speak(
 ):
     try:
         speaker_name = get_or_register_speaker(await voice.read())
-        tts.tts_to_file(
+
+        start = time.time()
+        wav = tts.tts(
             text=text,
             speaker=speaker_name,
             language=lang,
-            file_path="out.wav",
             temperature=temp,
             top_p=top_p,
-        )
-        with open("out.wav", "rb") as f:
-            wav = f.read()
+        )  # numpy float32, mono
+        wall = time.time() - start
+
+        # write to memory as 16-bit PCM WAV
+        buf = io.BytesIO()
+        sf.write(buf, wav, SR, format="WAV", subtype="PCM_16")
+        data = buf.getvalue()
 
         # keep a copy for download
         with open("out_last.wav", "wb") as f:
-            f.write(wav)
+            f.write(data)
 
-        return Response(
-            content=wav,
-            media_type="audio/wav",
-            headers={"Content-Disposition": 'inline; filename="speech.wav"'},
-        )
+        headers = {
+            "Content-Disposition": 'inline; filename="speech.wav"',
+            "X-Wall": f"{wall:.3f}",
+            "X-AudioSec": f"{len(wav)/SR:.3f}",
+            "X-RTF": f"{(wall/(len(wav)/SR)):.3f}" if len(wav) else "nan",
+        }
+        return Response(content=data, media_type="audio/wav", headers=headers)
+
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -126,6 +141,7 @@ async def speak_batch(
         parts = json.loads(chunks)
         if not isinstance(parts, list):
             return JSONResponse(status_code=400, content={"error": "chunks must be a JSON array"})
+
         expanded: list[str] = []
         for s in parts:
             if isinstance(s, str) and s.strip():
@@ -135,49 +151,48 @@ async def speak_batch(
 
         speaker_name = get_or_register_speaker(await voice.read())
 
-        sr = 24000
-        all_samples = []
-        timings = []  # per-subchunk metrics
-
+        all_wavs = []
+        timings = []
         for idx, txt in enumerate(expanded, 1):
             start = time.time()
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-                tts.tts_to_file(
-                    text=txt,
-                    speaker=speaker_name,
-                    language=lang,
-                    file_path=tmp.name,
-                    temperature=temp,
-                    top_p=top_p,
-                )
-                wall = time.time() - start
+            
+            wav = tts.tts(
+                text=txt,
+                speaker=speaker_name,
+                language=lang,
+                temperature=temp,
+                top_p=top_p,
+            )
 
-                audio, got_sr = sf.read(tmp.name, dtype="int16")
-                if got_sr != sr:
-                    return JSONResponse(status_code=500, content={"error": f"unexpected sample rate {got_sr}"})
-                if audio.ndim > 1:
-                    audio = audio[:, 0]
-                all_samples.append(audio)
+            # normalize to float32 NumPy mono
+            wav_np = np.asarray(wav, dtype=np.float32).reshape(-1)
 
-                audio_sec = float(len(audio)) / sr
-                rtf = wall / audio_sec if audio_sec > 0 else None
-                timings.append({
-                    "i": idx,
-                    "chars": len(txt),
-                    "wall_s": round(wall, 3),
-                    "audio_s": round(audio_sec, 3),
-                    "rtf": round(rtf, 3) if rtf is not None else None,
-                })
+            wall = time.time() - start
+            audio_sec = float(wav_np.size) / SR if wav_np.size else 0.0
+            rtf = wall / audio_sec if audio_sec > 0 else None
 
-        # concat & write response
-        cat = np.concatenate(all_samples, axis=0)
+            timings.append({
+                "i": idx,
+                "chars": len(txt),
+                "wall_s": round(wall, 3),
+                "audio_s": round(audio_sec, 3),
+                "rtf": round(rtf, 3) if rtf is not None else None,
+            })
+
+            all_wavs.append(wav_np)
+
+        # concat & write
+        if not all_wavs:
+            return JSONResponse(status_code=400, content={"error": "no chunks to synthesize"})
+        cat = np.concatenate(all_wavs, axis=0)
+
         buf = io.BytesIO()
-        sf.write(buf, cat, sr, format="WAV", subtype="PCM_16")
-        buf.seek(0)
+        sf.write(buf, cat, SR, format="WAV", subtype="PCM_16")
+        data = buf.getvalue()
 
         # save a copy for download
         with open("out_last.wav", "wb") as f:
-            f.write(buf.getvalue())
+            f.write(data)
 
         total_wall = round(sum(t["wall_s"] for t in timings), 3)
         total_audio = round(sum(t["audio_s"] for t in timings), 3)
@@ -200,8 +215,7 @@ async def speak_batch(
             "X-Total-Audio": str(total_audio),
             "X-RTF": str(overall_rtf),
         }
-
-        return Response(content=buf.getvalue(), media_type="audio/wav", headers=headers)
+        return Response(content=data, media_type="audio/wav", headers=headers)
 
     except json.JSONDecodeError:
         return JSONResponse(status_code=400, content={"error": "chunks must be valid JSON"})
@@ -228,6 +242,5 @@ def download_last():
     return FileResponse(path, media_type="audio/wav", filename="out_last.wav")
 
 if __name__ == "__main__":
-    # dev: uvicorn server:app --host 127.0.0.1 --port 5055 --reload
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
