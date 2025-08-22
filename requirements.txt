@@ -1,17 +1,8 @@
-# Core runtime
 torch==2.5.1
 torchaudio==2.5.1
-transformers==4.40.2
 TTS==0.22.0
-
-# Audio utilities
+transformers==4.40.2
 librosa
 soundfile
-
-# API server
-fastapi
-uvicorn
-python-multipart   # needed for file uploads
-
-# Env + utils
+runpod
 python-dotenv

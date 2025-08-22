@@ -1,3 +1,84 @@
-["Intro paragraph here.",
- "Second paragraph — slightly longer.",
- "Final short closing line."]
+{
+  "url": "https://academy.hackthebox.com/module/169/section/1641",
+  "title": "Hack The Box - Academy",
+  "siteName": "",
+  "chunkCount": 19,
+  "chunks": [
+    {
+      "role": "heading",
+      "text": "Introduction to Serialization"
+    },
+    {
+      "role": "heading",
+      "text": "Introduction"
+    },
+    {
+      "role": "body",
+      "text": "Serialization is the process of taking an object from memory and converting it into a series of bytes so that it can be stored or transmitted over a network and then reconstructed later on, perhaps by a different program or in a different machine environment."
+    },
+    {
+      "role": "body",
+      "text": "Deserialization is the reverse action: taking serialized data and reconstructing the original object in memory. Many object-oriented programming languages support serialization natively, including, but not limited to:"
+    },
+    {
+      "role": "list",
+      "text": "Java Ruby Python PHP C#"
+    },
+    {
+      "role": "body",
+      "text": "For the duration of this module, we will only focus on Python and PHP; however, please note that the same concepts taught may be reapplied to most, if not all, languages that support serialization."
+    },
+    {
+      "role": "heading",
+      "text": "PHP Serialization"
+    },
+    {
+      "role": "body",
+      "text": "As an example, this is how we would serialize an array in PHP: Introduction to Serialization"
+    },
+    {
+      "role": "body",
+      "text": "As you can see, $original_data is an array containing one string (\"HTB\"), one integer (123), and one double (7.77). Using the serialize function, the array is turned into bytes that represent the array. We carry on to unserialize this serialized string and restore the original array as verified by the var_dump of $reconstructed_data."
+    },
+    {
+      "role": "body",
+      "text": "Serialized objects in PHP are easy to read, unlike serialized objects in many other languages, which may look like complete gibberish to the human eye, as you will see in the Python example, but before that, let's understand what the letters and numbers in the serialized data mean:"
+    },
+    {
+      "role": "body",
+      "text": "Code: php"
+    },
+    {
+      "role": "heading",
+      "text": "Python Serialization"
+    },
+    {
+      "role": "body",
+      "text": "Similar to the PHP example above, we will serialize an array in Python. There are multiple libraries for Python which implement serialization, such as PyYAML and JSONpickle. However, Pickle is the native implementation, and it is what will be used in this example."
+    },
+    {
+      "role": "body",
+      "text": "Introduction to Serialization"
+    },
+    {
+      "role": "body",
+      "text": "Reading the serialized data pickle outputs is much harder than reading the output PHP provides. However, it is still possible. According to comments in the pickle library, a pickle is a program for a virtual pickle machine (PM). The PM contains a stack and a memo (long-term memory), and a pickled object is just a sequence of opcodes for the PM to execute, which will recreate an arbitrary object on the stack."
+    },
+    {
+      "role": "body",
+      "text": "The PM's stack is a Last-In-First-Out (LIFO) data structure. You may push items onto the top of the stack, and you may pop the top object off of the stack."
+    },
+    {
+      "role": "body",
+      "text": "Quoting from comments in the pickle library, the PM's memo is a \"data structure which remembers which objects the pickler has already seen, so that shared or recursive objects are pickled by reference and not by value.\""
+    },
+    {
+      "role": "body",
+      "text": "In Lib/pickle.py (Python 3.10), we can see all of the pickle opcodes defined, and by referring to them, as well as the source code for the various pickling functions, we can piece together what our serialized_data does exactly when it is passed to pickle.loads():"
+    },
+    {
+      "role": "body",
+      "text": "Code: python / 1 spawns left Waiting to\n start... Enable step-by-step solutions for all questions"
+    }
+  ]
+}
