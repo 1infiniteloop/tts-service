@@ -5,7 +5,7 @@ import numpy as np
 import soundfile as sf
 import torch
 from fastapi import FastAPI, UploadFile, Form, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from TTS.api import TTS
 import uvicorn
 
@@ -99,6 +99,11 @@ async def speak(
         )
         with open("out.wav", "rb") as f:
             wav = f.read()
+
+        # keep a copy for download
+        with open("out_last.wav", "wb") as f:
+            f.write(wav)
+
         return Response(
             content=wav,
             media_type="audio/wav",
@@ -170,6 +175,10 @@ async def speak_batch(
         sf.write(buf, cat, sr, format="WAV", subtype="PCM_16")
         buf.seek(0)
 
+        # save a copy for download
+        with open("out_last.wav", "wb") as f:
+            f.write(buf.getvalue())
+
         total_wall = round(sum(t["wall_s"] for t in timings), 3)
         total_audio = round(sum(t["audio_s"] for t in timings), 3)
         overall_rtf = round(total_wall / total_audio, 3) if total_audio > 0 else None
@@ -210,6 +219,13 @@ def metrics():
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
+
+@app.get("/download/last")
+def download_last():
+    path = "out_last.wav"
+    if not os.path.exists(path):
+        return JSONResponse(status_code=404, content={"error": "no out_last.wav yet"})
+    return FileResponse(path, media_type="audio/wav", filename="out_last.wav")
 
 if __name__ == "__main__":
     # dev: uvicorn server:app --host 127.0.0.1 --port 5055 --reload
