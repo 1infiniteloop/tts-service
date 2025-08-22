@@ -1,7 +1,8 @@
+# handler.py
 import runpod
 
 def handler(event):
-    # sanity: echo back what we got
-    return {"ok": True, "echo": event}
+    inp = event.get("input", {})
+    return {"ok": True, "echo": inp}
 
 runpod.serverless.start({"handler": handler})
